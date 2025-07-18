@@ -5,10 +5,21 @@ import { AppLayout } from "@/layouts/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { User } from "@/types";
+import { adminApi } from "@/utils/adminApi";
 
 export const AdminDashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [systemStats, setSystemStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    totalScans: 0,
+    newThisMonth: 0,
+    systemUptime: "0%"
+  });
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
     const userData = localStorage.getItem("sagitech-user");
@@ -24,46 +35,76 @@ export const AdminDashboard = () => {
     }
   }, [navigate]);
 
-  // Mock system statistics
-  const systemStats = {
-    totalUsers: 127,
-    activeUsers: 89,
-    totalScans: 2453,
-    systemUptime: "99.9%"
-  };
+  useEffect(() => {
+    adminApi.getRecentActivity()
+      .then(res => {
+        setRecentActivity(res.data as any[]);
+        setActivityLoading(false);
+      })
+      .catch(() => {
+        setRecentActivity([]);
+        setActivityLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    adminApi.getDashboardOverview()
+      .then(res => {
+        setSystemStats(res.data as typeof systemStats);
+        setStatsLoading(false);
+      })
+      .catch(() => {
+        setSystemStats({
+          totalUsers: 0,
+          activeUsers: 0,
+          totalScans: 0,
+          newThisMonth: 0,
+          systemUptime: "0%"
+        });
+        setStatsLoading(false);
+      });
+  }, []);
 
   const statCards = [
     {
       title: "Total Users",
-      value: systemStats.totalUsers,
+      value: statsLoading ? "..." : systemStats.totalUsers,
       icon: Users,
       color: "text-blue-500",
       bgColor: "bg-blue-500/20",
-      change: "+12% this month"
+      change: ""
     },
     {
       title: "Active Users",
-      value: systemStats.activeUsers,
+      value: statsLoading ? "..." : systemStats.activeUsers,
       icon: Activity,
       color: "text-green-500",
       bgColor: "bg-green-500/20",
-      change: "+8% this week"
+      change: ""
     },
     {
       title: "Total Scans",
-      value: systemStats.totalScans,
+      value: statsLoading ? "..." : systemStats.totalScans,
       icon: Camera,
       color: "text-purple-500",
       bgColor: "bg-purple-500/20",
-      change: "+156 today"
+      change: ""
+    },
+    {
+      title: "New This Month",
+      value: statsLoading ? "..." : systemStats.newThisMonth,
+      icon: Camera,
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/20",
+      change: ""
     },
     {
       title: "System Uptime",
-      value: systemStats.systemUptime,
+      value: statsLoading ? "..." : systemStats.systemUptime,
       icon: TrendingUp,
       color: "text-emerald-500",
       bgColor: "bg-emerald-500/20",
-      change: "Excellent"
+      change: ""
     }
   ];
 
@@ -166,23 +207,24 @@ export const AdminDashboard = () => {
           <GlassCard>
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-foreground">Recent User Activity</h3>
-              <div className="space-y-3">
-                {[
-                  { user: "farmer@demo.com", action: "Completed scan", time: "2 minutes ago" },
-                  { user: "john.doe@farm.com", action: "Registered account", time: "15 minutes ago" },
-                  { user: "maria.garcia@agri.com", action: "Viewed analytics", time: "1 hour ago" },
-                  { user: "farmer@demo.com", action: "Completed scan", time: "2 hours ago" },
-                  { user: "alex.kim@banana.farm", action: "Updated profile", time: "4 hours ago" }
-                ].map((activity, index) => (
-                  <div key={index} className="flex items-center justify-between py-2 border-b border-glass-border last:border-b-0">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-foreground">{activity.user}</p>
-                      <p className="text-xs text-muted-foreground">{activity.action}</p>
+              {activityLoading ? (
+                <div>Loading...</div>
+              ) : recentActivity.length === 0 ? (
+                <div className="text-muted-foreground">No recent activity.</div>
+              ) : (
+                <div className="space-y-3">
+                  {recentActivity.map((log, idx) => (
+                    <div key={idx} className="flex items-center justify-between py-2 border-b border-glass-border last:border-b-0">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">{log.username || "System"}</p>
+                        <p className="text-xs text-muted-foreground">{log.action}</p>
+                        <p className="text-xs text-muted-foreground">{log.description}</p>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{new Date(log.timestamp).toLocaleString()}</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">{activity.time}</span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </GlassCard>
 

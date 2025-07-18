@@ -1,16 +1,23 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, Search, MoreVertical, Eye, Trash2, UserCheck, Calendar } from "lucide-react";
+import { Users, Search, MoreVertical, Eye, UserCheck, Calendar } from "lucide-react";
 import { AppLayout } from "@/layouts/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { Input } from "@/components/ui/input";
 import { User } from "@/types";
+import { adminApi } from "@/utils/adminApi";
 
 export const AdminUsers = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [systemStats, setSystemStats] = useState<{ totalScans: number; newThisMonth: number }>(
+    { totalScans: 0, newThisMonth: 0 }
+  );
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
     const userData = localStorage.getItem("sagitech-user");
@@ -26,70 +33,46 @@ export const AdminUsers = () => {
     }
   }, [navigate]);
 
-  // Mock user data
-  const allUsers = [
-    {
-      id: "1",
-      name: "John Doe",
-      email: "john.doe@farm.com",
-      role: "farmer" as const,
-      createdAt: new Date("2024-01-15"),
-      lastActive: new Date("2024-01-20"),
-      totalScans: 23,
-      status: "active"
-    },
-    {
-      id: "2", 
-      name: "Maria Garcia",
-      email: "maria.garcia@agri.com",
-      role: "farmer" as const,
-      createdAt: new Date("2024-01-10"),
-      lastActive: new Date("2024-01-19"),
-      totalScans: 45,
-      status: "active"
-    },
-    {
-      id: "3",
-      name: "Demo Farmer",
-      email: "farmer@demo.com",
-      role: "farmer" as const,
-      createdAt: new Date("2024-01-01"),
-      lastActive: new Date("2024-01-20"),
-      totalScans: 67,
-      status: "active"
-    },
-    {
-      id: "4",
-      name: "Alex Kim",
-      email: "alex.kim@banana.farm",
-      role: "farmer" as const,
-      createdAt: new Date("2024-01-18"),
-      lastActive: new Date("2024-01-18"),
-      totalScans: 12,
-      status: "inactive"
-    },
-    {
-      id: "5",
-      name: "Sarah Wilson",
-      email: "sarah@organicfarm.net",
-      role: "farmer" as const,
-      createdAt: new Date("2024-01-12"),
-      lastActive: new Date("2024-01-19"),
-      totalScans: 34,
-      status: "active"
-    }
-  ];
+  useEffect(() => {
+    adminApi.getAllUsers()
+      .then(res => {
+        setAllUsers(res.data as any[]);
+        setLoading(false);
+      })
+      .catch(() => {
+        setAllUsers([]);
+        setLoading(false);
+      });
+  }, []);
 
-  const filteredUsers = allUsers.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
+  useEffect(() => {
+    adminApi.getDashboardOverview()
+      .then(res => {
+        setSystemStats({
+          totalScans: res.data.totalScans,
+          newThisMonth: res.data.newThisMonth
+        });
+        setStatsLoading(false);
+      })
+      .catch(() => {
+        setSystemStats({ totalScans: 0, newThisMonth: 0 });
+        setStatsLoading(false);
+      });
+  }, []);
+
+  const filteredUsers = allUsers.filter((user: any) =>
+    (user.user?.first_name + ' ' + user.user?.last_name).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.user?.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.user?.username.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const activeUsers = allUsers.filter(u => u.status === "active").length;
-  const totalScans = allUsers.reduce((sum, u) => sum + u.totalScans, 0);
-  const newUsersThisMonth = allUsers.filter(u => 
-    new Date(u.createdAt).getMonth() === new Date().getMonth()
-  ).length;
+  const activeUsers = allUsers.length; // You can refine this if you have a status field
+  const totalScans = statsLoading ? "..." : systemStats.totalScans;
+  const newUsersThisMonth = allUsers.filter((u: any) => {
+    const joined = new Date(u.user?.date_joined || '');
+    const now = new Date();
+    return joined.getMonth() === now.getMonth() && joined.getFullYear() === now.getFullYear();
+  }).length;
 
   if (!user) return null;
 
@@ -172,9 +155,10 @@ export const AdminUsers = () => {
         {/* Users Table */}
         <GlassCard>
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-foreground">Farmers ({filteredUsers.length})</h3>
-            
-            {filteredUsers.length > 0 ? (
+            <h3 className="text-lg font-semibold text-foreground">Users ({filteredUsers.length})</h3>
+            {loading ? (
+              <div className="text-center py-8">Loading...</div>
+            ) : filteredUsers.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -182,46 +166,28 @@ export const AdminUsers = () => {
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">User</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Email</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Joined</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Last Active</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Scans</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Role</th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredUsers.map((userData) => (
+                    {filteredUsers.map((userData: any) => (
                       <tr key={userData.id} className="border-b border-glass-border/50 hover:bg-primary-glass/30 transition-colors">
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 bg-primary/20 rounded-full flex items-center justify-center">
                               <span className="text-xs font-medium text-primary">
-                                {userData.name.split(' ').map(n => n[0]).join('')}
+                                {(userData.user?.first_name?.[0] || '') + (userData.user?.last_name?.[0] || userData.user?.username?.[0] || '')}
                               </span>
                             </div>
-                            <span className="font-medium text-foreground">{userData.name}</span>
+                            <span className="font-medium text-foreground">{userData.user?.first_name || userData.user?.username} {userData.user?.last_name}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-4 text-sm text-muted-foreground">{userData.email}</td>
+                        <td className="py-4 px-4 text-sm text-muted-foreground">{userData.user?.email}</td>
                         <td className="py-4 px-4 text-sm text-muted-foreground">
-                          {new Date(userData.createdAt).toLocaleDateString()}
+                          {userData.user?.date_joined ? new Date(userData.user.date_joined).toLocaleDateString() : ''}
                         </td>
-                        <td className="py-4 px-4 text-sm text-muted-foreground">
-                          {new Date(userData.lastActive).toLocaleDateString()}
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className="px-2 py-1 bg-primary/20 text-primary text-xs font-medium rounded-full">
-                            {userData.totalScans}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                            userData.status === 'active' 
-                              ? 'bg-green-500/20 text-green-700 dark:text-green-300' 
-                              : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
-                          }`}>
-                            {userData.status}
-                          </span>
-                        </td>
+                        <td className="py-4 px-4 text-sm text-muted-foreground">{userData.role}</td>
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-2">
                             <GlassButton variant="glass" size="sm">
@@ -245,54 +211,6 @@ export const AdminUsers = () => {
             )}
           </div>
         </GlassCard>
-
-        {/* User Activity Summary */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <GlassCard>
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-foreground">Top Active Users</h3>
-              <div className="space-y-3">
-                {allUsers
-                  .sort((a, b) => b.totalScans - a.totalScans)
-                  .slice(0, 5)
-                  .map((userData, index) => (
-                    <div key={userData.id} className="flex items-center justify-between py-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-muted-foreground w-4">#{index + 1}</span>
-                        <div className="w-6 h-6 bg-primary/20 rounded-full flex items-center justify-center">
-                          <span className="text-xs text-primary">
-                            {userData.name.split(' ').map(n => n[0]).join('')}
-                          </span>
-                        </div>
-                        <span className="text-sm font-medium text-foreground">{userData.name}</span>
-                      </div>
-                      <span className="text-sm text-muted-foreground">{userData.totalScans} scans</span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="bg-primary-glass border-primary/30">
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-foreground">Quick Actions</h3>
-              <div className="space-y-3">
-                <GlassButton variant="primary" className="w-full justify-start">
-                  <Users className="h-4 w-4 mr-2" />
-                  Broadcast Message to All Users
-                </GlassButton>
-                <GlassButton variant="glass" className="w-full justify-start">
-                  <Eye className="h-4 w-4 mr-2" />
-                  Export User Activity Report
-                </GlassButton>
-                <GlassButton variant="glass" className="w-full justify-start">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Schedule System Maintenance
-                </GlassButton>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
       </div>
     </AppLayout>
   );

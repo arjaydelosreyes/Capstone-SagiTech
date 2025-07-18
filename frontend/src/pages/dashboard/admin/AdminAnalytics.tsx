@@ -8,10 +8,17 @@ import { GlassButton } from "@/components/ui/GlassButton";
 import { User } from "@/types";
 import { getRipenessColor } from "@/utils/analyzeBanana";
 import { toast } from "@/hooks/use-toast";
+import { saveAs } from "file-saver";
+import { Document, Packer, Paragraph, Table, TableCell, TableRow, HeadingLevel, WidthType, ImageRun } from "docx";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import * as XLSX from "xlsx";
+import { adminApi } from "@/utils/adminApi";
 
 export const AdminAnalytics = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const userData = localStorage.getItem("sagitech-user");
@@ -27,106 +34,95 @@ export const AdminAnalytics = () => {
     }
   }, [navigate]);
 
-  // Mock system-wide analytics data
-  const systemAnalytics = {
-    totalScans: 2453,
-    totalUsers: 127,
-    totalBananas: 8734,
-    avgConfidence: 91.4,
-    ripenessDistribution: {
-      "Not Mature": 643,
-      "Mature": 891,
-      "Ripe": 672,
-      "Over Ripe": 247
-    },
-    userGrowth: [
-      { month: "Jul", users: 45, scans: 234 },
-      { month: "Aug", users: 67, scans: 456 },
-      { month: "Sep", users: 89, scans: 678 },
-      { month: "Oct", users: 103, scans: 892 },
-      { month: "Nov", users: 118, scans: 1124 },
-      { month: "Dec", users: 127, scans: 1345 }
-    ],
-    topPerformers: [
-      { name: "Maria Garcia", email: "maria.garcia@agri.com", scans: 156, accuracy: 94.2 },
-      { name: "John Doe", email: "john.doe@farm.com", scans: 134, accuracy: 92.8 },
-      { name: "Demo Farmer", email: "farmer@demo.com", scans: 123, accuracy: 89.5 },
-      { name: "Sarah Wilson", email: "sarah@organicfarm.net", scans: 98, accuracy: 96.1 },
-      { name: "Alex Kim", email: "alex.kim@banana.farm", scans: 87, accuracy: 88.9 }
-    ]
-  };
+  useEffect(() => {
+    adminApi.getAnalyticsOverview()
+      .then(res => {
+        setAnalytics(res.data);
+        setLoading(false);
+      })
+      .catch(() => {
+        setAnalytics(null);
+        setLoading(false);
+      });
+  }, []);
 
+  if (!user) return null;
+
+  // Use analytics data or fallback to ... for loading
   const metricCards = [
     {
       title: "Platform Usage",
-      value: `${systemAnalytics.totalScans}`,
+      value: loading || !analytics ? "..." : analytics.totalScans,
       icon: Activity,
       color: "text-blue-500",
       bgColor: "bg-blue-500/20",
-      change: "+23% this month"
+      change: ""
     },
     {
       title: "Active Farmers",
-      value: systemAnalytics.totalUsers,
+      value: loading || !analytics ? "..." : analytics.totalUsers,
       icon: Users,
       color: "text-green-500",
       bgColor: "bg-green-500/20",
-      change: "+12 new this week"
+      change: ""
     },
     {
       title: "Bananas Analyzed",
-      value: `${systemAnalytics.totalBananas}`,
+      value: loading || !analytics ? "..." : analytics.totalBananas,
       icon: BarChart3,
       color: "text-purple-500",
       bgColor: "bg-purple-500/20",
-      change: "+1,247 this week"
+      change: ""
     },
     {
       title: "Avg AI Accuracy",
-      value: `${systemAnalytics.avgConfidence}%`,
+      value: loading || !analytics ? "..." : `${analytics.avgConfidence}%`,
       icon: TrendingUp,
       color: "text-emerald-500",
       bgColor: "bg-emerald-500/20",
-      change: "+2.1% improved"
+      change: ""
     }
   ];
 
-  // Prepare data for charts
-  const platformGrowthData = systemAnalytics.userGrowth.map((data) => ({
-    month: data.month,
-    users: data.users,
-    scans: data.scans
-  }));
-
-  const ripenessChartData = Object.entries(systemAnalytics.ripenessDistribution).map(([ripeness, count]) => ({
-    name: ripeness,
-    value: count,
-    color: getRipenessColor(ripeness)
-  }));
+  const platformGrowthData = analytics?.userGrowth || [];
+  const ripenessChartData = analytics?.ripenessDistribution ?
+    Object.entries(analytics.ripenessDistribution).map(([ripeness, count]) => ({
+      name: ripeness,
+      value: count,
+      color: getRipenessColor(ripeness)
+    })) : [];
+  const topPerformers = analytics?.topPerformers || [];
 
   // CSV export logic for report
   const handleExportCSV = () => {
+    const branding = "SagiTech - Saba Banana Ripeness and Yield Prediction";
+    const exportTime = "Exported: " + new Date().toLocaleString();
+    const note = "All data is confidential.";
     const rows = [];
+    rows.push(branding);
+    rows.push(exportTime);
+    rows.push(note);
+    rows.push(""); // Empty row for spacing
     // Top-level stats
-    rows.push(["Total Scans", systemAnalytics.totalScans]);
-    rows.push(["Total Users", systemAnalytics.totalUsers]);
-    rows.push(["Total Bananas", systemAnalytics.totalBananas]);
-    rows.push(["Avg AI Accuracy", systemAnalytics.avgConfidence + "%"]);
-    rows.push([]);
+    rows.push(["Total Scans", analytics?.totalScans, "", ""].join(","));
+    rows.push(["Total Users", analytics?.totalUsers, "", ""].join(","));
+    rows.push(["Total Bananas", analytics?.totalBananas, "", ""].join(","));
+    rows.push(["Avg AI Accuracy", analytics?.avgConfidence + "%", "", ""].join(","));
+    rows.push(["", "", "", ""].join(","));
     // Ripeness Distribution
-    rows.push(["Ripeness Stage", "Count"]);
-    Object.entries(systemAnalytics.ripenessDistribution).forEach(([stage, count]) => {
-      rows.push([stage, count]);
+    rows.push(["Ripeness Stage", "Count", "", ""].join(","));
+    Object.entries(analytics?.ripenessDistribution || {}).forEach(([stage, count]) => {
+      rows.push([stage, count, "", ""].join(","));
     });
-    rows.push([]);
+    rows.push(["", "", "", ""].join(","));
     // Top Performers
-    rows.push(["Top Performers"]);
-    rows.push(["Name", "Email", "Scans", "Accuracy"]);
-    systemAnalytics.topPerformers.forEach(p => {
-      rows.push([p.name, p.email, p.scans, p.accuracy + "%"]);
+    rows.push(["Top Performers", "", "", ""].join(","));
+    rows.push(["Name", "Email", "Scans", "Accuracy"].join(","));
+    topPerformers.forEach(p => {
+      rows.push([p.name, p.email, p.scans, p.accuracy + "%"].join(","));
     });
     // Convert to CSV
-    const csvContent = rows.map(row => row.join(",")).join("\n");
+    const csvContent = rows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -137,6 +133,185 @@ export const AdminAnalytics = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     toast && toast({ title: "Export Successful", description: "CSV report has been downloaded." });
+  };
+
+  const handleExportWord = async () => {
+    // Fetch the logo as arrayBuffer, handle errors gracefully
+    const logoUrl = "/SagiTech_Logo.png";
+    let logoData: ArrayBuffer | null = null;
+    try {
+      const response = await fetch(logoUrl);
+      if (response.ok) {
+        logoData = await response.arrayBuffer();
+      }
+    } catch (e) {
+      logoData = null;
+    }
+    const now = new Date();
+    const exportDate = now.toLocaleString();
+
+    // Build up the children array for the docx section
+    const children = [];
+    if (logoData && logoData.byteLength > 0) {
+      children.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: new Uint8Array(logoData),
+              type: "png",
+              transformation: { width: 120, height: 120 },
+            })
+          ],
+          alignment: "center"
+        })
+      );
+    }
+    children.push(
+      new Paragraph({
+        text: "SagiTech - Saba Banana Ripeness and Yield Prediction",
+        heading: HeadingLevel.TITLE,
+        spacing: { after: 200 },
+        alignment: "center"
+      }),
+      new Paragraph({
+        text: `Exported: ${exportDate}`,
+        spacing: { after: 100 },
+        alignment: "center"
+      }),
+      new Paragraph({
+        text: "All data is confidential.",
+        spacing: { after: 200 },
+        alignment: "center"
+      }),
+      // Key Metrics
+      new Paragraph({
+        text: `Key Metrics`,
+        heading: HeadingLevel.HEADING_1,
+        spacing: { after: 100 },
+      }),
+      new Paragraph({
+        text: `Total Scans: ${analytics?.totalScans}\nTotal Users: ${analytics?.totalUsers}\nTotal Bananas: ${analytics?.totalBananas}\nAverage Confidence: ${analytics?.avgConfidence}%`,
+        spacing: { after: 200 },
+      }),
+      // Ripeness Breakdown Table
+      new Paragraph({
+        text: `Ripeness Breakdown`,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph("Ripeness")] }),
+              new TableCell({ children: [new Paragraph("Count")] }),
+            ],
+          }),
+          ...Object.entries(analytics?.ripenessDistribution || {}).map(([ripeness, count]) =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(ripeness)] }),
+                new TableCell({ children: [new Paragraph(String(count))] }),
+              ],
+            })
+          ),
+        ],
+      }),
+      // User Growth Table
+      new Paragraph({
+        text: `User Growth (Last 6 Months)`,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph("Month")] }),
+              new TableCell({ children: [new Paragraph("Users")] }),
+              new TableCell({ children: [new Paragraph("Scans")] }),
+            ],
+          }),
+          ...(analytics?.userGrowth || []).map((row: any) =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(row.month)] }),
+                new TableCell({ children: [new Paragraph(String(row.users))] }),
+                new TableCell({ children: [new Paragraph(String(row.scans))] }),
+              ],
+            })
+          ),
+        ],
+      }),
+      // Top Performers Table
+      new Paragraph({
+        text: `Top Performers`,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph("Name")] }),
+              new TableCell({ children: [new Paragraph("Email")] }),
+              new TableCell({ children: [new Paragraph("Scans")] }),
+              new TableCell({ children: [new Paragraph("Accuracy")] }),
+            ],
+          }),
+          ...(analytics?.topPerformers || []).map((p: any) =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(p.name)] }),
+                new TableCell({ children: [new Paragraph(p.email)] }),
+                new TableCell({ children: [new Paragraph(String(p.scans))] }),
+                new TableCell({ children: [new Paragraph(p.accuracy + "%")] }),
+              ],
+            })
+          ),
+        ],
+      })
+    );
+
+    const doc = new Document({
+      sections: [
+        {
+          children,
+        },
+      ],
+    });
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, "admin-analytics-report.docx");
+  };
+
+  const handleExportExcel = () => {
+    const now = new Date();
+    const exportDate = now.toLocaleString();
+    const sheetData = [
+      ["SagiTech Logo: See attached or visit https://sagitech.com"],
+      ["SagiTech - Saba Banana Ripeness and Yield Prediction"],
+      ["Exported: " + exportDate],
+      ["All data is confidential."],
+      [],
+      ["Metric", "Value", "", ""],
+      ["Total Scans", analytics?.totalScans, "", ""],
+      ["Total Users", analytics?.totalUsers, "", ""],
+      ["Total Bananas", analytics?.totalBananas, "", ""],
+      ["Avg AI Accuracy", analytics?.avgConfidence + "%", "", ""],
+      [],
+      ["Ripeness Stage", "Count", "", ""],
+      ...Object.entries(analytics?.ripenessDistribution || {}).map(([stage, count]) => [stage, count, "", ""]),
+      [],
+      ["Name", "Email", "Scans", "Accuracy"],
+      ...topPerformers.map(p => [p.name, p.email, p.scans, p.accuracy + "%"]),
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Analytics");
+    XLSX.writeFile(workbook, "admin-analytics-report.xlsx");
   };
 
   if (!user) return null;
@@ -152,10 +327,18 @@ export const AdminAnalytics = () => {
               Comprehensive insights into platform performance and user behavior
             </p>
           </div>
-          <GlassButton variant="primary" className="flex items-center gap-2" onClick={handleExportCSV}>
-            <Download className="h-4 w-4" />
-            Export Report
-          </GlassButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <GlassButton variant="primary" className="flex items-center gap-2">
+                <Download className="h-4 w-4" />
+                Export
+              </GlassButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportWord}>Export as Word (.docx)</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportExcel}>Export as Excel (.xlsx)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Key Metrics */}
@@ -249,7 +432,7 @@ export const AdminAnalytics = () => {
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-foreground">Top Performing Farmers</h3>
               <div className="space-y-3">
-                {systemAnalytics.topPerformers.map((performer, index) => (
+                {topPerformers.map((performer, index) => (
                   <div key={index} className="flex items-center justify-between py-3 border-b border-glass-border last:border-b-0">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-muted-foreground w-6">#{index + 1}</span>

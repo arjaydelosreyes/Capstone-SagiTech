@@ -10,6 +10,9 @@ import { toast } from "@/hooks/use-toast";
 import { PieChart as RePieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, Line, AreaChart, Area, LineChart } from 'recharts';
 import { useCallback } from "react";
 import { authService } from "@/utils/authService";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import * as XLSX from "xlsx";
+import { Document, Packer, Paragraph, Table, TableCell, TableRow, HeadingLevel, WidthType, ImageRun } from "docx";
 
 // Add a hook to detect dark mode
 function useIsDarkMode() {
@@ -214,6 +217,203 @@ export const FarmerAnalytics = () => {
     toast && toast({ title: "Export Successful", description: "CSV file has been downloaded." });
   };
 
+  const handleExportWord = async () => {
+    // Fetch the logo as arrayBuffer, handle errors gracefully
+    const logoUrl = "/SagiTech_Logo.png";
+    let logoData: ArrayBuffer | null = null;
+    try {
+      const response = await fetch(logoUrl);
+      if (response.ok) {
+        logoData = await response.arrayBuffer();
+      }
+    } catch (e) {
+      logoData = null;
+    }
+    const now = new Date();
+    const exportDate = now.toLocaleString();
+
+    // Calculate analytics data
+    const totalBananas = scans.reduce((total, scan) => total + scan.bananaCount, 0);
+    const averageConfidence = scans.length > 0 
+      ? Math.round(scans.reduce((total, scan) => total + scan.confidence, 0) / scans.length)
+      : 0;
+    const ripenessBreakdown = scans.reduce((acc, scan) => {
+      acc[scan.ripeness] = (acc[scan.ripeness] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const scansByDate = scans.reduce((acc, scan) => {
+      const date = new Date(scan.timestamp).toLocaleDateString();
+      if (!acc[date]) {
+        acc[date] = { date, count: 0, bananas: 0 };
+      }
+      acc[date].count += 1;
+      acc[date].bananas += scan.bananaCount;
+      return acc;
+    }, {} as Record<string, { date: string; count: number; bananas: number }>);
+    const timelineData = Object.values(scansByDate).slice(-7); // Last 7 days
+
+    const children = [];
+    if (logoData && logoData.byteLength > 0) {
+      children.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: new Uint8Array(logoData),
+              type: "png",
+              transformation: { width: 120, height: 120 },
+            })
+          ],
+          alignment: "center"
+        })
+      );
+    }
+    children.push(
+      new Paragraph({
+        text: "SagiTech - Saba Banana Ripeness and Yield Prediction",
+        heading: HeadingLevel.TITLE,
+        spacing: { after: 200 },
+        alignment: "center"
+      }),
+      new Paragraph({
+        text: `Exported: ${exportDate}`,
+        spacing: { after: 100 },
+        alignment: "center"
+      }),
+      new Paragraph({
+        text: "All data is confidential.",
+        spacing: { after: 200 },
+        alignment: "center"
+      }),
+      // Key Metrics
+      new Paragraph({
+        text: `Key Metrics`,
+        heading: HeadingLevel.HEADING_1,
+        spacing: { after: 100 },
+      }),
+      new Paragraph({
+        text: `Total Scans: ${scans.length}\nTotal Bananas: ${totalBananas}\nAverage Confidence: ${averageConfidence}%\nActive Days: ${timelineData.length}`,
+        spacing: { after: 200 },
+      }),
+      // Ripeness Breakdown Table
+      new Paragraph({
+        text: `Ripeness Breakdown`,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph("Ripeness")] }),
+              new TableCell({ children: [new Paragraph("Count")] }),
+            ],
+          }),
+          ...Object.entries(ripenessBreakdown).map(([ripeness, count]) =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(ripeness)] }),
+                new TableCell({ children: [new Paragraph(String(count))] }),
+              ],
+            })
+          ),
+        ],
+      }),
+      // Timeline Summary
+      new Paragraph({
+        text: `Activity Timeline (Last 7 Days)`,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph("Date")] }),
+              new TableCell({ children: [new Paragraph("Scans")] }),
+              new TableCell({ children: [new Paragraph("Bananas")] }),
+            ],
+          }),
+          ...timelineData.map(day =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(day.date)] }),
+                new TableCell({ children: [new Paragraph(String(day.count))] }),
+                new TableCell({ children: [new Paragraph(String(day.bananas))] }),
+              ],
+            })
+          ),
+        ],
+      }),
+      // Main Data Table
+      new Paragraph({
+        text: `\nDetailed Scan Records`,
+        heading: HeadingLevel.HEADING_1,
+        spacing: { after: 100 },
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph("Date")] }),
+              new TableCell({ children: [new Paragraph("Ripeness")] }),
+              new TableCell({ children: [new Paragraph("Banana Count")] }),
+              new TableCell({ children: [new Paragraph("Confidence")] }),
+            ],
+          }),
+          ...scans.map(scan =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph(new Date(scan.timestamp).toLocaleString())] }),
+                new TableCell({ children: [new Paragraph(scan.ripeness)] }),
+                new TableCell({ children: [new Paragraph(String(scan.bananaCount))] }),
+                new TableCell({ children: [new Paragraph(scan.confidence + "%")] }),
+              ],
+            })
+          ),
+        ],
+      })
+    );
+
+    const doc = new Document({
+      sections: [
+        {
+          children,
+        },
+      ],
+    });
+    const blob = await Packer.toBlob(doc);
+    const { saveAs } = await import("file-saver");
+    saveAs(blob, "farmer-analytics-report.docx");
+  };
+
+  const handleExportExcel = () => {
+    const now = new Date();
+    const exportDate = now.toLocaleString();
+    const headers = ["Date", "Ripeness", "Banana Count", "Confidence"];
+    const rows = scans.map(scan => [
+      new Date(scan.timestamp).toLocaleString(),
+      scan.ripeness,
+      scan.bananaCount,
+      scan.confidence + "%"
+    ]);
+    const sheetData = [
+      ["SagiTech Logo: See attached or visit https://sagitech.com"],
+      ["SagiTech - Saba Banana Ripeness and Yield Prediction"],
+      ["Exported: " + exportDate],
+      ["All data is confidential."],
+      [],
+      headers,
+      ...rows
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Analytics");
+    XLSX.writeFile(workbook, "farmer-analytics-report.xlsx");
+  };
+
   // Custom tick renderer for XAxis to ensure visibility in all modes
   const renderDateTick = useCallback(
     ({ x, y, payload }) => (
@@ -267,15 +467,22 @@ export const FarmerAnalytics = () => {
             </p>
           </div>
           <div>
-            <GlassButton
-              variant="glass"
-              className="flex items-center gap-2"
-              onClick={handleExportCSV}
-              disabled={scans.length === 0}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </GlassButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <GlassButton
+                  variant="glass"
+                  className="flex items-center gap-2"
+                  disabled={scans.length === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                </GlassButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportWord}>Export as Word (.docx)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel}>Export as Excel (.xlsx)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -353,8 +560,8 @@ export const FarmerAnalytics = () => {
                           <Cell key={`cell-${idx}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <RechartsTooltip content={<CustomPieTooltip />} />
-                      <Legend content={<CustomPieLegend />} />
+                      <RechartsTooltip content={CustomPieTooltip} />
+                      <Legend content={CustomPieLegend} />
                     </RePieChart>
                   </ResponsiveContainer>
                 </div>
@@ -414,8 +621,8 @@ export const FarmerAnalytics = () => {
                         allowDataOverflow={true}
                       />
                       <YAxis stroke={isDarkMode ? '#e5e7eb' : '#1e293b'} tick={{ fontSize: 14, fill: isDarkMode ? '#e5e7eb' : '#1e293b' }} />
-                      <RechartsTooltip content={<CustomLineTooltip />} />
-                      <Legend content={<CustomLineLegend />} />
+                      <RechartsTooltip content={CustomLineTooltip} />
+                      <Legend content={CustomLineLegend} />
                       <Line
                         type="monotone"
                         dataKey="scans"

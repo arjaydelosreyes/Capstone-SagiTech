@@ -26,7 +26,6 @@ export const FarmerDashboard = () => {
       setUser(parsedUser);
       setLoading(true);
       setError(null);
-      // Fetch scans from backend
       authService.fetchScanRecords()
         .then((records) => {
           const normalizedScans = records.map(scan => ({
@@ -35,7 +34,7 @@ export const FarmerDashboard = () => {
             confidence: scan.avg_confidence,
             ripeness: scan.ripeness || scan.ripeness_results?.[0]?.ripeness || "",
           }));
-          setRecentScans(normalizedScans.slice(0, 3));
+          setRecentScans(normalizedScans); // Use all scans for stats
           setLoading(false);
         })
         .catch(() => {
@@ -145,6 +144,9 @@ export const FarmerDashboard = () => {
     );
   }
 
+  // For the 'Recent Scans' section, only show the last 3
+  const recentThreeScans = recentScans.slice(0, 3);
+
   return (
     <AppLayout title="Farmer Dashboard" user={user}>
       <div className="space-y-8">
@@ -212,9 +214,9 @@ export const FarmerDashboard = () => {
             </GlassButton>
           </div>
 
-          {recentScans.length > 0 ? (
+          {recentThreeScans.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {recentScans.map((scan) => (
+              {recentThreeScans.map((scan) => (
                 <GlassCard key={scan.id}>
                   <div className="space-y-3">
                     <div className="aspect-video bg-muted/50 rounded-lg overflow-hidden">
@@ -250,17 +252,7 @@ export const FarmerDashboard = () => {
                 <Banana className="h-12 w-12 mx-auto text-muted-foreground" />
                 <div>
                   <h3 className="font-medium text-foreground">No scans yet</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Start by scanning your first batch of bananas
-                  </p>
                 </div>
-                <GlassButton
-                  variant="primary"
-                  onClick={() => navigate("/dashboard/farmer/scan")}
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Start Scanning
-                </GlassButton>
               </div>
             </GlassCard>
           )}

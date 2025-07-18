@@ -6,10 +6,14 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { User, ScanResult } from "@/types";
 import { getRipenessBadgeClass } from "@/utils/analyzeBanana";
 import { useToast } from "@/hooks/use-toast";
 import { authService } from "@/utils/authService";
+import { saveAs } from "file-saver";
+import { Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun, HeadingLevel, WidthType, ImageRun } from "docx";
+import * as XLSX from "xlsx";
 
 export const FarmerHistory = () => {
   const navigate = useNavigate();
@@ -96,7 +100,14 @@ export const FarmerHistory = () => {
       scan.bananaCount,
       scan.confidence + "%"
     ]);
+    const branding = "SagiTech - Saba Banana Ripeness and Yield Prediction";
+    const exportTime = "Exported: " + new Date().toLocaleString();
+    const note = "All data is confidential.";
     const csvContent = [
+      branding,
+      exportTime,
+      note,
+      "", // Empty row for spacing
       headers.join(","),
       ...rows.map(row => row.join(","))
     ].join("\n");
@@ -110,6 +121,109 @@ export const FarmerHistory = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     toast({ title: "Export Successful", description: "CSV file has been downloaded." });
+  };
+
+  const handleExportWord = async () => {
+    // Fetch the logo as base64
+    const logoUrl = "/SagiTech_Logo.png";
+    const toBase64 = (url: string) => fetch(url)
+      .then(res => res.blob())
+      .then(blob => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      }));
+    const logoBase64 = await toBase64(logoUrl);
+    const logoData = logoBase64.split(",")[1];
+
+    const now = new Date();
+    const exportDate = now.toLocaleString();
+
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  data: Uint8Array.from(atob(logoData), c => c.charCodeAt(0)),
+                  type: "png",
+                  transformation: { width: 120, height: 120 },
+                })
+              ],
+              alignment: "center"
+            }),
+            new Paragraph({
+              text: "SagiTech - Saba Banana Ripeness and Yield Prediction",
+              heading: HeadingLevel.TITLE,
+              spacing: { after: 200 },
+              alignment: "center"
+            }),
+            new Paragraph({
+              text: `Exported: ${exportDate}`,
+              spacing: { after: 100 },
+              alignment: "center"
+            }),
+            new Paragraph({
+              text: "All data is confidential.",
+              spacing: { after: 200 },
+              alignment: "center"
+            }),
+            new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: [
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph("Date")] }),
+                    new TableCell({ children: [new Paragraph("Ripeness")] }),
+                    new TableCell({ children: [new Paragraph("Banana Count")] }),
+                    new TableCell({ children: [new Paragraph("Confidence")] }),
+                  ],
+                }),
+                ...filteredScans.map(scan =>
+                  new TableRow({
+                    children: [
+                      new TableCell({ children: [new Paragraph(new Date(scan.timestamp).toLocaleString())] }),
+                      new TableCell({ children: [new Paragraph(scan.ripeness)] }),
+                      new TableCell({ children: [new Paragraph(String(scan.bananaCount))] }),
+                      new TableCell({ children: [new Paragraph(scan.confidence + "%")] }),
+                    ],
+                  })
+                ),
+              ],
+            }),
+          ],
+        },
+      ],
+    });
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, "banana-scan-history.docx");
+  };
+
+  const handleExportExcel = () => {
+    const now = new Date();
+    const exportDate = now.toLocaleString();
+    const headers = ["Date", "Ripeness", "Banana Count", "Confidence"];
+    const rows = filteredScans.map(scan => [
+      new Date(scan.timestamp).toLocaleString(),
+      scan.ripeness,
+      scan.bananaCount,
+      scan.confidence + "%"
+    ]);
+    const sheetData = [
+      ["SagiTech Logo: See attached or visit https://sagitech.com"],
+      ["SagiTech - Saba Banana Ripeness and Yield Prediction"],
+      ["Exported: " + exportDate],
+      ["All data is confidential."],
+      [],
+      headers,
+      ...rows
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Scan History");
+    XLSX.writeFile(workbook, "banana-scan-history.xlsx");
   };
 
   if (!user) return null;
@@ -176,15 +290,18 @@ export const FarmerHistory = () => {
                 </SelectContent>
               </Select>
             </div>
-            <GlassButton
-              variant="glass"
-              className="flex items-center gap-2"
-              onClick={handleExportCSV}
-              disabled={filteredScans.length === 0}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </GlassButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <GlassButton variant="primary" className="flex items-center gap-2">
+                  <Download className="h-4 w-4" />
+                  Export
+                </GlassButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportWord}>Export as Word (.docx)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel}>Export as Excel (.xlsx)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </GlassCard>
 

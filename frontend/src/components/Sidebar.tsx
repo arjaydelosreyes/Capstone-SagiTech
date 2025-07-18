@@ -7,7 +7,6 @@ import {
   Users, 
   Settings, 
   ChevronLeft,
-  Banana,
   LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -58,19 +57,17 @@ export const Sidebar = ({ user, isCollapsed, onToggle }: SidebarProps) => {
     >
       <GlassCard className="h-full rounded-none rounded-r-2xl p-0 overflow-hidden">
         {/* Header */}
-        <div className="p-6 border-b border-glass-border flex items-center justify-between">
+        <div className="p-4 border-b border-glass-border flex items-center justify-between">
           {!isCollapsed && (
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                <Banana className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h2 className="font-bold text-lg text-gradient">SagiTech</h2>
-                <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
-              </div>
+            <div className="flex flex-col items-center w-full pt-2 pb-2">
+              <img
+                src="/SagiTech_Logo.svg"
+                alt="SagiTech Logo"
+                className="w-24 h-24 object-contain mb-1"
+              />
+              <p className="text-xs text-muted-foreground capitalize mt-1">{user?.role}</p>
             </div>
           )}
-          
           <button
             onClick={onToggle}
             className="p-1.5 rounded-lg hover:bg-primary-glass transition-colors"
