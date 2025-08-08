@@ -9,6 +9,7 @@ from .views import SystemSettingViewSet
 from .views import ActivityLogViewSet
 from .views import DashboardOverviewView
 from .views import AnalyticsOverviewView
+from .views import BananaClassifyView
 
 router = DefaultRouter()
 router.register(r'profiles', ProfileViewSet)
@@ -32,4 +33,8 @@ urlpatterns += [
 
 urlpatterns += [
     path('analytics/overview/', AnalyticsOverviewView.as_view(), name='analytics-overview'),
+]
+
+urlpatterns += [
+    path('bananas/classify/', BananaClassifyView.as_view(), name='bananas-classify'),
 ] 
