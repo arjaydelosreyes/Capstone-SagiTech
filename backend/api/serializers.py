@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Profile, ScanRecord, SystemSetting, ActivityLog
+from .models import Profile, ScanRecord, SystemSetting, ActivityLog, MLModelPerformance, QualityAlert
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.contrib.auth.password_validation import validate_password
 
@@ -13,7 +13,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     class Meta:
         model = Profile
-        fields = ['user', 'role']
+        fields = ['user', 'role', 'email_verified', 'email_verification_sent_at']
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -65,13 +65,51 @@ class RegisterSerializer(serializers.ModelSerializer):
         Profile.objects.create(user=user, role=role)
         return user 
 
+class BananaDetectionSerializer(serializers.Serializer):
+    """Serializer for individual banana detection results"""
+    class_id = serializers.IntegerField()
+    class_name = serializers.CharField()
+    confidence = serializers.FloatField()
+    polygon = serializers.ListField(
+        child=serializers.ListField(
+            child=serializers.FloatField(),
+            min_length=2,
+            max_length=2
+        )
+    )
+    bbox = serializers.ListField(
+        child=serializers.FloatField(),
+        min_length=4,
+        max_length=4
+    )
+    area = serializers.FloatField()
+    quality_score = serializers.FloatField()
+    timestamp = serializers.CharField()
+
+class QualityMetricsSerializer(serializers.Serializer):
+    """Serializer for quality metrics"""
+    total_detections = serializers.IntegerField()
+    avg_confidence = serializers.FloatField()
+    avg_quality_score = serializers.FloatField()
+    detection_density = serializers.FloatField()
+
 class ScanRecordSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     ripeness = serializers.SerializerMethodField()
+    ripeness_distribution = serializers.SerializerMethodField()
+    detections_data = serializers.JSONField(required=False)
+    quality_metrics = serializers.JSONField(required=False)
+    metadata = serializers.JSONField(required=False)
 
     class Meta:
         model = ScanRecord
-        fields = ['id', 'user', 'image', 'timestamp', 'banana_count', 'ripeness_results', 'avg_confidence', 'ripeness']
+        fields = [
+            'id', 'user', 'image', 'timestamp', 'banana_count', 'ripeness_results', 
+            'avg_confidence', 'ripeness', 'overall_quality_score', 'processing_time',
+            'model_version', 'detections_data', 'quality_metrics', 'metadata',
+            'mature_count', 'not_mature_count', 'ripe_count', 'over_ripe_count',
+            'ripeness_distribution', 'quality_validated', 'has_errors', 'error_message'
+        ]
         read_only_fields = ['id', 'user', 'timestamp'] 
 
     def get_ripeness(self, obj):
@@ -79,6 +117,46 @@ class ScanRecordSerializer(serializers.ModelSerializer):
         if obj.ripeness_results and isinstance(obj.ripeness_results, list) and len(obj.ripeness_results) > 0:
             return obj.ripeness_results[0].get('ripeness', None)
         return None 
+    
+    def get_ripeness_distribution(self, obj):
+        """Get ripeness distribution"""
+        return obj.get_ripeness_distribution()
+
+    def create(self, validated_data):
+        """Enhanced create method with ML result processing"""
+        # Process detections data if provided
+        detections_data = validated_data.get('detections_data', [])
+        
+        scan_record = super().create(validated_data)
+        
+        # Update ripeness counts based on detections
+        if detections_data:
+            scan_record.update_ripeness_counts()
+            scan_record.save()
+        
+        return scan_record
+
+    def update(self, instance, validated_data):
+        """Enhanced update method with ML result processing"""
+        # Process detections data if provided
+        detections_data = validated_data.get('detections_data')
+        
+        instance = super().update(instance, validated_data)
+        
+        # Update ripeness counts if detections were updated
+        if detections_data is not None:
+            instance.update_ripeness_counts()
+            instance.save()
+        
+        return instance
+
+class EnhancedScanRecordSerializer(ScanRecordSerializer):
+    """Extended serializer with full ML analysis results"""
+    detections_detailed = BananaDetectionSerializer(many=True, read_only=True, source='detections_data')
+    quality_metrics_detailed = QualityMetricsSerializer(read_only=True, source='quality_metrics')
+    
+    class Meta(ScanRecordSerializer.Meta):
+        fields = ScanRecordSerializer.Meta.fields + ['detections_detailed', 'quality_metrics_detailed']
 
 class SystemSettingSerializer(serializers.ModelSerializer):
     def validate(self, data):
@@ -108,4 +186,89 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        fields = '__all__' 
+        fields = '__all__'
+
+class MLModelPerformanceSerializer(serializers.ModelSerializer):
+    """Serializer for ML model performance tracking"""
+    
+    class Meta:
+        model = MLModelPerformance
+        fields = '__all__'
+        read_only_fields = ['timestamp']
+
+class QualityAlertSerializer(serializers.ModelSerializer):
+    """Serializer for quality alerts"""
+    resolved_by_username = serializers.CharField(source='resolved_by.username', read_only=True)
+    scan_record_details = ScanRecordSerializer(source='scan_record', read_only=True)
+    
+    class Meta:
+        model = QualityAlert
+        fields = '__all__'
+        read_only_fields = ['timestamp']
+
+class MLAnalysisRequestSerializer(serializers.Serializer):
+    """Serializer for ML analysis requests"""
+    image = serializers.ImageField()
+    confidence_threshold = serializers.FloatField(default=0.75, min_value=0.1, max_value=1.0)
+    iou_threshold = serializers.FloatField(default=0.5, min_value=0.1, max_value=1.0)
+    return_visualization = serializers.BooleanField(default=False)
+    save_results = serializers.BooleanField(default=True)
+
+class MLAnalysisResponseSerializer(serializers.Serializer):
+    """Serializer for ML analysis responses"""
+    success = serializers.BooleanField()
+    processing_time = serializers.FloatField()
+    model_version = serializers.CharField()
+    
+    # Detection results
+    detections = BananaDetectionSerializer(many=True)
+    banana_count = serializers.IntegerField()
+    
+    # Quality metrics
+    quality_metrics = QualityMetricsSerializer()
+    overall_quality_score = serializers.FloatField()
+    
+    # Ripeness distribution
+    ripeness_distribution = serializers.DictField()
+    
+    # Optional visualization
+    visualization_image = serializers.CharField(required=False, allow_null=True)
+    
+    # Error handling
+    error_message = serializers.CharField(required=False, allow_null=True)
+    warnings = serializers.ListField(child=serializers.CharField(), required=False)
+    
+    # Metadata
+    metadata = serializers.DictField()
+
+class BulkAnalysisRequestSerializer(serializers.Serializer):
+    """Serializer for bulk image analysis"""
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        min_length=1,
+        max_length=50  # Limit bulk processing
+    )
+    confidence_threshold = serializers.FloatField(default=0.75, min_value=0.1, max_value=1.0)
+    iou_threshold = serializers.FloatField(default=0.5, min_value=0.1, max_value=1.0)
+    save_results = serializers.BooleanField(default=True)
+
+class ModelPerformanceStatsSerializer(serializers.Serializer):
+    """Serializer for model performance statistics"""
+    model_version = serializers.CharField()
+    time_period = serializers.CharField()  # 'hour', 'day', 'week', 'month'
+    
+    # Performance metrics
+    avg_inference_time = serializers.FloatField()
+    total_inferences = serializers.IntegerField()
+    
+    # Quality metrics
+    avg_confidence = serializers.FloatField()
+    avg_quality_score = serializers.FloatField()
+    
+    # Distribution
+    class_distribution = serializers.DictField()
+    error_rate = serializers.FloatField()
+    
+    # Trends
+    performance_trend = serializers.ListField(child=serializers.DictField())
+    quality_trend = serializers.ListField(child=serializers.DictField()) 
