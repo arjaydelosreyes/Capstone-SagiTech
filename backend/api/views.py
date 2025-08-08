@@ -24,6 +24,10 @@ from collections import Counter
 from django.db.models import Sum, Avg, Count
 import calendar
 
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework import status
+
 # Create your views here.
 
 class ProfileViewSet(viewsets.ModelViewSet):
@@ -157,3 +161,63 @@ class AnalyticsOverviewView(APIView):
             'userGrowth': user_growth,
             'topPerformers': top_performers
         })
+
+
+class BananaClassifyView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        file_obj = request.FILES.get('image') or request.FILES.get('file')
+        if not file_obj:
+            return Response({"detail": "No image provided. Use 'image' or 'file' field."}, status=status.HTTP_400_BAD_REQUEST)
+
+        image_bytes = file_obj.read()
+        # Lazy imports to avoid import-time dependency errors
+        from ml.banana_detection.inference import get_banana_detector
+        import numpy as np
+
+        detector = get_banana_detector()
+        results = detector.predict_from_bytes(image_bytes)
+
+        # Convert results to API/storage schema
+        ripeness_results = []
+        for r in results:
+            ripeness_results.append({
+                'ripeness': r.get('category'),  # alias for compatibility
+                'category': r.get('category'),
+                'confidence': r.get('confidence'),
+                'bbox': r.get('bbox'),
+                'polygon': r.get('polygon'),
+                'area': r.get('area'),
+                'timestamp': r.get('timestamp'),
+            })
+
+        counts = detector.count_by_category(results)
+        banana_count = int(sum(counts.values()))
+        avg_confidence = float(np.mean([r.get('confidence', 0.0) for r in results])) if results else 0.0
+
+        # Reset file pointer before saving since we consumed it with read()
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
+
+        # Persist ScanRecord
+        scan = ScanRecord(
+            user=request.user,
+            image=file_obj,
+            banana_count=banana_count,
+            ripeness_results=ripeness_results,
+            avg_confidence=avg_confidence,
+        )
+        scan.save()
+
+        return Response({
+            'banana_count': banana_count,
+            'counts': counts,
+            'avg_confidence': round(avg_confidence, 4),
+            'results': ripeness_results,
+            'scan_id': scan.id,
+            'timestamp': scan.timestamp,
+        }, status=status.HTTP_200_OK)
