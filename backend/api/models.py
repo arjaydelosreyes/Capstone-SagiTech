@@ -18,9 +18,46 @@ class ScanRecord(models.Model):
     banana_count = models.IntegerField(default=0)
     ripeness_results = models.JSONField(default=list)  # List of {ripeness, confidence, bbox}
     avg_confidence = models.FloatField(default=0.0)
+    
+    # New fields for ripeness distribution
+    not_mature_count = models.IntegerField(default=0)
+    mature_count = models.IntegerField(default=0)
+    ripe_count = models.IntegerField(default=0)
+    over_ripe_count = models.IntegerField(default=0)
+    overall_ripeness = models.CharField(max_length=20, default='')  # Most prevalent ripeness
+    ripeness_distribution = models.JSONField(default=dict)  # {"Not Mature": 2, "Mature": 3, "Ripe": 1}
 
     def __str__(self):
         return f"Scan by {self.user.username} on {self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+
+    def get_ripeness_breakdown(self):
+        """Get a breakdown of ripeness counts and percentages"""
+        total = self.banana_count
+        if total == 0:
+            return {}
+        
+        breakdown = {}
+        for ripeness, count in self.ripeness_distribution.items():
+            percentage = round((count / total) * 100, 1)
+            breakdown[ripeness] = {
+                'count': count,
+                'percentage': percentage
+            }
+        return breakdown
+
+    def get_dominant_ripeness(self):
+        """Get the most prevalent ripeness level"""
+        if not self.ripeness_distribution:
+            return 'Unknown'
+        
+        max_count = 0
+        dominant_ripeness = 'Unknown'
+        for ripeness, count in self.ripeness_distribution.items():
+            if count > max_count:
+                max_count = count
+                dominant_ripeness = ripeness
+        
+        return dominant_ripeness
 
 class SystemSetting(models.Model):
     key = models.CharField(max_length=100, unique=True)

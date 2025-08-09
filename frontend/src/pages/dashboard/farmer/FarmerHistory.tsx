@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { User, ScanResult } from "@/types";
 import { getRipenessBadgeClass } from "@/utils/analyzeBanana";
+import { RipenessBadgeGroup } from "@/components/ui/RipenessBadge";
 import { useToast } from "@/hooks/use-toast";
 import { authService } from "@/utils/authService";
 import { saveAs } from "file-saver";
@@ -46,7 +47,10 @@ export const FarmerHistory = () => {
             ...scan,
             bananaCount: scan.banana_count,
             confidence: scan.avg_confidence,
-            ripeness: scan.ripeness || scan.ripeness_results?.[0]?.ripeness || "",
+            ripeness: scan.overall_ripeness || scan.ripeness || scan.ripeness_results?.[0]?.ripeness || "",
+            ripenessDistribution: scan.ripeness_distribution || {},
+            ripenessBreakdown: scan.ripeness_breakdown || {},
+            ripenessResults: scan.ripeness_results || [],
           }));
           setScans(normalizedScans);
           setFilteredScans(normalizedScans);
@@ -359,18 +363,49 @@ export const FarmerHistory = () => {
                   
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className={`px-3 py-1 rounded-lg text-sm font-medium border ${getRipenessBadgeClass(scan.ripeness)}`}>
-                        {scan.ripeness}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {scan.confidence}%
-                      </span>
+                      <div className="space-y-1">
+                        {/* Primary ripeness badge (dominant) */}
+                        <span className={`px-3 py-1 rounded-lg text-sm font-medium border ${getRipenessBadgeClass(scan.ripeness)}`}>
+                          {scan.ripeness} (Primary)
+                        </span>
+                        
+                        {/* Ripeness distribution badges */}
+                        {scan.ripenessDistribution && Object.keys(scan.ripenessDistribution).length > 1 && (
+                          <div className="mt-2">
+                            <RipenessBadgeGroup
+                              ripenessDistribution={scan.ripenessDistribution}
+                              ripenessBreakdown={scan.ripenessBreakdown}
+                              totalBananas={scan.bananaCount}
+                              size="sm"
+                              showPercentages={false}
+                              maxBadges={3}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="text-right">
+                        <span className="text-sm text-muted-foreground">
+                          {scan.confidence}% avg
+                        </span>
+                        {scan.ripenessResults && scan.ripenessResults.length > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            {scan.ripenessResults.length} detections
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-1 text-muted-foreground">
                         <Banana className="h-4 w-4" />
                         <span>{scan.bananaCount} banana{scan.bananaCount !== 1 ? 's' : ''}</span>
+                        {/* Show distribution summary if available */}
+                        {scan.ripenessDistribution && Object.keys(scan.ripenessDistribution).length > 1 && (
+                          <span className="text-xs">
+                            ({Object.keys(scan.ripenessDistribution).length} types)
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 text-muted-foreground">
                         <Calendar className="h-4 w-4" />
@@ -435,26 +470,69 @@ export const FarmerHistory = () => {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Ripeness</label>
-                    <span className={`inline-block px-3 py-1 rounded-lg text-sm font-medium border ${getRipenessBadgeClass(selectedScan.ripeness)}`}>
-                      {selectedScan.ripeness}
-                    </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Basic Information */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Primary Ripeness</label>
+                      <span className={`inline-block px-3 py-1 rounded-lg text-sm font-medium border ${getRipenessBadgeClass(selectedScan.ripeness)}`}>
+                        {selectedScan.ripeness}
+                      </span>
+                    </div>
+                    
+                    {/* Ripeness Distribution */}
+                    {selectedScan.ripenessDistribution && Object.keys(selectedScan.ripenessDistribution).length > 0 && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">Ripeness Distribution</label>
+                        <RipenessBadgeGroup
+                          ripenessDistribution={selectedScan.ripenessDistribution}
+                          ripenessBreakdown={selectedScan.ripenessBreakdown}
+                          totalBananas={selectedScan.bananaCount}
+                          size="md"
+                          showPercentages={true}
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Average Confidence</label>
+                      <p className="text-lg font-semibold text-foreground">{selectedScan.confidence}%</p>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Confidence</label>
-                    <p className="text-lg font-semibold text-foreground">{selectedScan.confidence}%</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Banana Count</label>
-                    <p className="text-lg font-semibold text-foreground">{selectedScan.bananaCount}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Date</label>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(selectedScan.timestamp).toLocaleString()}
-                    </p>
+
+                  {/* Detailed Statistics */}
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Total Banana Count</label>
+                      <p className="text-lg font-semibold text-foreground">{selectedScan.bananaCount}</p>
+                      {selectedScan.ripenessResults && selectedScan.ripenessResults.length > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          {selectedScan.ripenessResults.length} individual detections
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* Breakdown Grid */}
+                    {selectedScan.ripenessBreakdown && Object.keys(selectedScan.ripenessBreakdown).length > 0 && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">Detailed Breakdown</label>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          {Object.entries(selectedScan.ripenessBreakdown).map(([ripeness, breakdown]) => (
+                            <div key={ripeness} className="flex justify-between p-2 bg-muted/20 rounded">
+                              <span className="font-medium">{ripeness}:</span>
+                              <span>{breakdown.count} ({breakdown.percentage}%)</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Scan Date</label>
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(selectedScan.timestamp).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
