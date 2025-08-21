@@ -64,14 +64,36 @@ class PredictionView(APIView):
                     'details': f'Image size ({image_file.size} bytes) exceeds 10MB limit'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Validate file format
+            # Validate file format (enhanced WebP support)
             allowed_types = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-            if image_file.content_type not in allowed_types:
+            content_type = image_file.content_type.lower()
+            
+            # Handle various WebP MIME types
+            if 'webp' in content_type or content_type == 'image/webp':
+                content_type = 'image/webp'
+            
+            if content_type not in allowed_types:
                 logger.error(f"❌ Invalid file type: {image_file.content_type}")
                 return Response({
                     'error': 'Invalid file format',
-                    'details': f'Supported formats: JPEG, PNG, WebP. Got: {image_file.content_type}'
+                    'details': f'Supported formats: JPEG, PNG, WebP. Got: {image_file.content_type}. If using WebP, ensure the file is valid.'
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Additional WebP validation
+            if content_type == 'image/webp':
+                try:
+                    from PIL import Image
+                    # Test if WebP file can be opened
+                    test_image = Image.open(image_file)
+                    test_image.verify()
+                    image_file.seek(0)  # Reset file pointer
+                    logger.info(f"✅ WebP file validated: {image_file.name}")
+                except Exception as webp_error:
+                    logger.error(f"❌ WebP validation failed: {webp_error}")
+                    return Response({
+                        'error': 'Invalid WebP file',
+                        'details': 'The WebP file appears to be corrupted or invalid. Please try converting to JPEG or PNG.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
             # Get analysis mode
             mode = request.data.get('mode', 'standard')

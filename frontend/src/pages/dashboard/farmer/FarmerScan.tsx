@@ -9,6 +9,8 @@ import useAuth from "@/hooks/useAuth";
 import useImageUpload from "@/hooks/useImageUpload";
 import usePrediction from "@/hooks/usePrediction";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { apiService } from "@/services/ApiService";
+import { validateImageFile, optimizeImageFile } from "@/utils/imageUtils";
 
 const FarmerScanContent = () => {
   const navigate = useNavigate();
@@ -49,21 +51,143 @@ const FarmerScanContent = () => {
   const analyzeImage = async () => {
     if (!selectedImage || !user) return;
 
+    console.group('🍌 COMPLETELY FIXED FarmerScan.analyzeImage');
+    console.log('🚀 BYPASSING ALL OLD SERVICES - DIRECT API CALL');
+    console.log('🎯 Target endpoint: /api/predict/ (NEW ARCHITECTURE)');
+    console.log('User:', user.username);
+    console.log('Image preview:', selectedImage.substring(0, 50) + '...');
+    console.log('Timestamp:', new Date().toISOString());
+
     try {
-      // Convert data URL to File for ML analysis
-      const file = convertDataURLToFile(selectedImage, `scan_${Date.now()}.jpg`);
+      // Convert data URL to File with enhanced WebP support
+      let filename = `scan_${Date.now()}`;
+      let detectedMime = 'image/jpeg'; // default
       
-      // Use the prediction hook for analysis
-      await analyze(file, user.id, 'standard');
+      // Enhanced format detection
+      if (selectedImage.includes('data:image/webp') || selectedImage.includes('webp')) {
+        filename += '.webp';
+        detectedMime = 'image/webp';
+        console.log('🖼️ WebP format detected - ensuring proper handling');
+      } else if (selectedImage.includes('data:image/png')) {
+        filename += '.png';
+        detectedMime = 'image/png';
+        console.log('🖼️ PNG format detected');
+      } else {
+        filename += '.jpg';
+        detectedMime = 'image/jpeg';
+        console.log('🖼️ JPEG format (default)');
+      }
+      
+      const file = convertDataURLToFile(selectedImage, filename);
+      
+      // Validate the file
+      const validation = validateImageFile(file);
+      if (!validation.isValid) {
+        throw new Error(validation.error || 'Invalid image file');
+      }
+      
+      // Optimize the file (handles WebP conversion if needed)
+      const optimizedFile = await optimizeImageFile(file);
+      
+      console.log('📁 File prepared and optimized:', {
+        originalName: file.name,
+        optimizedName: optimizedFile.name,
+        originalSize: file.size,
+        optimizedSize: optimizedFile.size,
+        originalType: file.type,
+        optimizedType: optimizedFile.type,
+        wasConverted: file.type !== optimizedFile.type
+      });
+
+      // COMPLETELY BYPASS OLD SERVICES - DIRECT API CALL
+      console.log('🚀 Making DIRECT API call to /api/predict/');
+      console.log('🎯 Using optimized file for better compatibility');
+      
+      const prediction = await apiService.predict(optimizedFile, 'standard');
+      
+      // Convert to ScanResult format
+      const analysisResult = {
+        id: prediction.id.toString(),
+        userId: user.id,
+        timestamp: new Date(prediction.processed_at),
+        image: prediction.image_url,
+        ripeness: convertRipenessFromDistribution(prediction.ripeness_distribution),
+        bananaCount: prediction.total_count,
+        confidence: prediction.confidence,
+        ripenessResults: prediction.bounding_boxes.map(box => ({
+          ripeness: box.ripeness,
+          confidence: box.confidence,
+          bbox: box.bbox
+        })),
+        ripenessDistribution: prediction.ripeness_distribution,
+        processingMetadata: prediction.processing_metadata
+      };
+
+      // Update state directly
+      setResult(analysisResult);
+      
+      console.log('✅ DIRECT API CALL SUCCESS:', {
+        totalBananas: analysisResult.bananaCount,
+        confidence: analysisResult.confidence,
+        ripeness: analysisResult.ripeness,
+        processingTime: prediction.processing_metadata.processing_time + 's'
+      });
+
+      toast({
+        title: "Analysis Complete! 🎉",
+        description: `Found ${analysisResult.bananaCount} banana(s) with ${analysisResult.confidence}% confidence. Results saved automatically!`,
+        variant: "default",
+      });
+
+      console.groupEnd();
       
     } catch (error) {
-      console.error('🔴 Failed to prepare image for analysis:', error);
+      console.groupEnd();
+      console.error('🔴 DIRECT API CALL FAILED:', error);
+      
+      // Enhanced error handling
+      let errorMessage = "Failed to analyze the image. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes('format') || error.message.includes('WebP') || error.message.includes('webp')) {
+          errorMessage = "WebP format detected but there was an issue. Please try converting to JPEG or PNG format, or ensure the WebP file is valid.";
+        } else if (error.message.includes('size') || error.message.includes('large')) {
+          errorMessage = "Image is too large. Please use an image under 10MB.";
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = "Network error. Please check your connection and try again.";
+        } else if (error.message.includes('401') || error.message.includes('unauthorized')) {
+          errorMessage = "Session expired. Please log in again.";
+        }
+      }
+      
       toast({
-        title: "Image Processing Error",
-        description: "Failed to process the image. Please try again.",
+        title: "Image Analysis Error",
+        description: errorMessage,
         variant: "destructive"
       });
     }
+  };
+
+  // Helper function to convert ripeness distribution to dominant ripeness
+  const convertRipenessFromDistribution = (distribution: Record<string, number>) => {
+    const ripenessMap = {
+      'not_mature': 'Not Mature',
+      'mature': 'Mature', 
+      'ripe': 'Ripe',
+      'over_ripe': 'Over Ripe'
+    };
+
+    let maxCount = 0;
+    let dominantRipeness = 'Mature';
+
+    for (const [stage, count] of Object.entries(distribution)) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantRipeness = ripenessMap[stage] || 'Mature';
+      }
+    }
+
+    return dominantRipeness;
   };
 
   const resetScan = () => {

@@ -140,6 +140,9 @@ export interface PredictionResponse {
     bbox: [number, number, number, number];
     ripeness: string;
     confidence: number;
+    centroid?: [number, number];
+    area?: number;
+    quality_score?: number;
   }>;
   processed_at: string;
   processing_metadata: {
@@ -147,6 +150,7 @@ export interface PredictionResponse {
     processing_time: number;
     analysis_mode: string;
     confidence_threshold: number;
+    has_segmentation?: boolean;
   };
 }
 
@@ -232,17 +236,23 @@ export const apiService = {
         mode: mode 
       });
       
-      // User-friendly error messages
+      // Enhanced user-friendly error messages with WebP support
       let userMessage = 'Failed to analyze image. Please try again.';
       if (error instanceof Error) {
         if (error.message.includes('size') || error.message.includes('large')) {
           userMessage = 'Image is too large. Please use an image under 10MB.';
         } else if (error.message.includes('format') || error.message.includes('type')) {
           userMessage = 'Invalid image format. Please use JPG, PNG, or WebP.';
+        } else if (error.message.includes('WebP') || error.message.includes('webp')) {
+          userMessage = 'WebP format detected but invalid. Please ensure the WebP file is valid or convert to JPEG/PNG.';
         } else if (error.message.includes('model') || error.message.includes('detection')) {
           userMessage = 'AI detection service is temporarily unavailable. Please try again later.';
         } else if (error.message.includes('network') || error.message.includes('fetch')) {
           userMessage = 'Network error. Please check your connection and try again.';
+        } else if (error.message.includes('400')) {
+          userMessage = 'Invalid image data. Please try a different image or convert to JPEG format.';
+        } else if (error.message.includes('401') || error.message.includes('unauthorized')) {
+          userMessage = 'Session expired. Please log in again.';
         }
       }
       

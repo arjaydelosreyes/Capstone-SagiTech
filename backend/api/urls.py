@@ -17,6 +17,7 @@ from .authentication import EmailTokenObtainPairView
 
 # Import new ML views with single endpoint architecture
 from .ml_views import PredictionView, PredictionDetailView, PredictionListView, AnalyticsView
+from .views import HealthCheckView
 
 # Router for standard CRUD operations
 router = DefaultRouter()
@@ -52,6 +53,11 @@ urlpatterns += [
 urlpatterns += [
     path('dashboard/overview/', DashboardOverviewView.as_view(), name='dashboard-overview'),
     path('analytics/overview/', AnalyticsOverviewView.as_view(), name='analytics-overview'),
+]
+
+# ========== SYSTEM ENDPOINTS ==========
+urlpatterns += [
+    path('health/', HealthCheckView.as_view(), name='health-check'),
 ]
 
 # ========== DEPRECATED ENDPOINTS (TO BE REMOVED) ==========
