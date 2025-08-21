@@ -46,6 +46,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'api.middleware.SecurityHeadersMiddleware',
+    'api.middleware.RateLimitMiddleware', 
+    'api.middleware.RequestTimingMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -126,6 +129,133 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ========== SECURITY SETTINGS ==========
+# Security headers
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
+
+# File upload security
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+FILE_UPLOAD_PERMISSIONS = 0o644
+
+# ========== LOGGING CONFIGURATION ==========
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+        'api': {
+            'format': '🔍 {asctime} [{levelname}] {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'sagitech.log',
+            'maxBytes': 10 * 1024 * 1024,  # 10MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        'api_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'api.log',
+            'maxBytes': 10 * 1024 * 1024,  # 10MB
+            'backupCount': 5,
+            'formatter': 'api',
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'errors.log',
+            'maxBytes': 10 * 1024 * 1024,  # 10MB
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'api': {
+            'handlers': ['api_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'ml': {
+            'handlers': ['api_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'api.ml_views': {
+            'handlers': ['api_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'root': {
+            'handlers': ['error_file', 'console'],
+            'level': 'ERROR',
+        },
+    },
+}
+
+# ========== CACHE CONFIGURATION ==========
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'sagitech-cache',
+        'TIMEOUT': 300,  # 5 minutes default
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+        }
+    }
+}
+
+# ========== ML MODEL SETTINGS ==========
+# Roboflow API configuration (use environment variables in production)
+ROBOFLOW_API_KEY = os.environ.get('ROBOFLOW_API_KEY', 'your-api-key-here')
+ROBOFLOW_MODEL_ID = os.environ.get('ROBOFLOW_MODEL_ID', 'your-model-id')
+ROBOFLOW_VERSION = os.environ.get('ROBOFLOW_VERSION', '1')
+
+# ML processing settings
+ML_PROCESSING_TIMEOUT = 30  # seconds
+ML_MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+ML_SUPPORTED_FORMATS = ['image/jpeg', 'image/png', 'image/webp']
+
+# ========== PERFORMANCE SETTINGS ==========
+# Database connection pooling
+CONN_MAX_AGE = 60  # seconds
+
+# Static files optimization
+STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+
+# ========== MONITORING SETTINGS ==========
+# Performance monitoring
+ENABLE_PERFORMANCE_MONITORING = True
+SLOW_REQUEST_THRESHOLD = 3.0  # seconds
+
+# Error tracking
+ENABLE_ERROR_TRACKING = True
+ERROR_RETENTION_DAYS = 30
 
 # REST Framework and CORS settings
 CORS_ALLOW_ALL_ORIGINS = True  # For development only!

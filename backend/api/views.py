@@ -157,3 +157,43 @@ class AnalyticsOverviewView(APIView):
             'userGrowth': user_growth,
             'topPerformers': top_performers
         })
+
+
+class HealthCheckView(APIView):
+    """
+    System health check endpoint
+    """
+    permission_classes = []  # Public endpoint
+
+    def get(self, request):
+        """Check system health status"""
+        try:
+            from django.db import connection
+            from django.utils import timezone
+            
+            # Test database connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                db_healthy = True
+        except Exception:
+            db_healthy = False
+
+        # Check ML service availability
+        try:
+            from ml.services.unified_ml_service import get_ml_service
+            ml_service = get_ml_service()
+            ml_healthy = True
+        except Exception:
+            ml_healthy = False
+
+        overall_status = 'healthy' if (db_healthy and ml_healthy) else 'degraded'
+        
+        return Response({
+            'status': overall_status,
+            'timestamp': timezone.now().isoformat(),
+            'version': '1.0.0',
+            'components': {
+                'database': 'healthy' if db_healthy else 'unhealthy',
+                'ml_service': 'healthy' if ml_healthy else 'unhealthy'
+            }
+        })

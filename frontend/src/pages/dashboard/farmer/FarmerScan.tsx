@@ -1,145 +1,199 @@
-import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Upload, RotateCcw, Check, X } from "lucide-react";
+import { Camera, Upload, RotateCcw, Check, X, AlertTriangle } from "lucide-react";
 import { AppLayout } from "@/layouts/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import { User, ScanResult } from "@/types";
-import { analyzeBanana, getRipenessBadgeClass } from "@/utils/analyzeBanana";
+import { getRipenessBadgeClass } from "@/utils/analyzeBanana";
 import { toast } from "@/hooks/use-toast";
-import { authService } from "@/utils/authService";
+import useAuth from "@/hooks/useAuth";
+import useImageUpload from "@/hooks/useImageUpload";
+import usePrediction from "@/hooks/usePrediction";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { apiService } from "@/services/ApiService";
+import { validateImageFile, optimizeImageFile } from "@/utils/imageUtils";
 
-export const FarmerScan = () => {
+const FarmerScanContent = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [result, setResult] = useState<ScanResult | null>(null);
-  const [showCamera, setShowCamera] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  
+  // Use custom hooks to eliminate duplicate code
+  const { user, isLoading: authLoading } = useAuth({ requiredRole: 'farmer' });
+  
+  const {
+    selectedImage,
+    showCamera,
+    fileInputRef,
+    videoRef,
+    handleFileUpload,
+    startCamera,
+    capturePhoto,
+    stopCamera,
+    resetImage,
+    convertDataURLToFile
+  } = useImageUpload();
 
-  useEffect(() => {
-    const userData = localStorage.getItem("sagitech-user");
-    if (userData) {
-      const parsedUser = JSON.parse(userData);
-      if (parsedUser.role !== "farmer") {
-        navigate("/login");
-        return;
-      }
-      setUser(parsedUser);
-    } else {
-      navigate("/login");
+  const {
+    result,
+    isAnalyzing,
+    error: predictionError,
+    hasError,
+    analyze,
+    reset: resetPrediction,
+    clearError
+  } = usePrediction({
+    onSuccess: (result) => {
+      console.log('🎉 Prediction successful:', result);
+    },
+    onError: (error) => {
+      console.error('🔴 Prediction failed:', error);
     }
-  }, [navigate]);
+  });
 
-  useEffect(() => {
-    if (showCamera && videoRef.current && cameraStream) {
-      videoRef.current.srcObject = cameraStream;
-    }
-    // Clean up the stream when camera is closed
-    return () => {
-      if (!showCamera && cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-        setCameraStream(null);
-      }
-    };
-  }, [showCamera, cameraStream]);
+  const analyzeImage = async () => {
+    if (!selectedImage || !user) return;
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setSelectedImage(e.target?.result as string);
-        setResult(null);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+    console.group('🍌 COMPLETELY FIXED FarmerScan.analyzeImage');
+    console.log('🚀 BYPASSING ALL OLD SERVICES - DIRECT API CALL');
+    console.log('🎯 Target endpoint: /api/predict/ (NEW ARCHITECTURE)');
+    console.log('User:', user.username);
+    console.log('Image preview:', selectedImage.substring(0, 50) + '...');
+    console.log('Timestamp:', new Date().toISOString());
 
-  const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setCameraStream(stream);
-      setShowCamera(true);
-    } catch (error) {
+      // Convert data URL to File with enhanced WebP support
+      let filename = `scan_${Date.now()}`;
+      let detectedMime = 'image/jpeg'; // default
+      
+      // Enhanced format detection
+      if (selectedImage.includes('data:image/webp') || selectedImage.includes('webp')) {
+        filename += '.webp';
+        detectedMime = 'image/webp';
+        console.log('🖼️ WebP format detected - ensuring proper handling');
+      } else if (selectedImage.includes('data:image/png')) {
+        filename += '.png';
+        detectedMime = 'image/png';
+        console.log('🖼️ PNG format detected');
+      } else {
+        filename += '.jpg';
+        detectedMime = 'image/jpeg';
+        console.log('🖼️ JPEG format (default)');
+      }
+      
+      const file = convertDataURLToFile(selectedImage, filename);
+      
+      // Validate the file
+      const validation = validateImageFile(file);
+      if (!validation.isValid) {
+        throw new Error(validation.error || 'Invalid image file');
+      }
+      
+      // Optimize the file (handles WebP conversion if needed)
+      const optimizedFile = await optimizeImageFile(file);
+      
+      console.log('📁 File prepared and optimized:', {
+        originalName: file.name,
+        optimizedName: optimizedFile.name,
+        originalSize: file.size,
+        optimizedSize: optimizedFile.size,
+        originalType: file.type,
+        optimizedType: optimizedFile.type,
+        wasConverted: file.type !== optimizedFile.type
+      });
+
+      // COMPLETELY BYPASS OLD SERVICES - DIRECT API CALL
+      console.log('🚀 Making DIRECT API call to /api/predict/');
+      console.log('🎯 Using optimized file for better compatibility');
+      
+      const prediction = await apiService.predict(optimizedFile, 'standard');
+      
+      // Convert to ScanResult format
+      const analysisResult = {
+        id: prediction.id.toString(),
+        userId: user.id,
+        timestamp: new Date(prediction.processed_at),
+        image: prediction.image_url,
+        ripeness: convertRipenessFromDistribution(prediction.ripeness_distribution),
+        bananaCount: prediction.total_count,
+        confidence: prediction.confidence,
+        ripenessResults: prediction.bounding_boxes.map(box => ({
+          ripeness: box.ripeness,
+          confidence: box.confidence,
+          bbox: box.bbox
+        })),
+        ripenessDistribution: prediction.ripeness_distribution,
+        processingMetadata: prediction.processing_metadata
+      };
+
+      // Update state directly
+      setResult(analysisResult);
+      
+      console.log('✅ DIRECT API CALL SUCCESS:', {
+        totalBananas: analysisResult.bananaCount,
+        confidence: analysisResult.confidence,
+        ripeness: analysisResult.ripeness,
+        processingTime: prediction.processing_metadata.processing_time + 's'
+      });
+
       toast({
-        title: "Camera Error",
-        description: "Unable to access camera. Please try uploading an image instead.",
+        title: "Analysis Complete! 🎉",
+        description: `Found ${analysisResult.bananaCount} banana(s) with ${analysisResult.confidence}% confidence. Results saved automatically!`,
+        variant: "default",
+      });
+
+      console.groupEnd();
+      
+    } catch (error) {
+      console.groupEnd();
+      console.error('🔴 DIRECT API CALL FAILED:', error);
+      
+      // Enhanced error handling
+      let errorMessage = "Failed to analyze the image. Please try again.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes('format') || error.message.includes('WebP') || error.message.includes('webp')) {
+          errorMessage = "WebP format detected but there was an issue. Please try converting to JPEG or PNG format, or ensure the WebP file is valid.";
+        } else if (error.message.includes('size') || error.message.includes('large')) {
+          errorMessage = "Image is too large. Please use an image under 10MB.";
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = "Network error. Please check your connection and try again.";
+        } else if (error.message.includes('401') || error.message.includes('unauthorized')) {
+          errorMessage = "Session expired. Please log in again.";
+        }
+      }
+      
+      toast({
+        title: "Image Analysis Error",
+        description: errorMessage,
         variant: "destructive"
       });
     }
   };
 
-  const capturePhoto = () => {
-    if (videoRef.current) {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(videoRef.current, 0, 0);
-      const imageData = canvas.toDataURL('image/jpeg');
-      setSelectedImage(imageData);
-      setShowCamera(false);
+  // Helper function to convert ripeness distribution to dominant ripeness
+  const convertRipenessFromDistribution = (distribution: Record<string, number>) => {
+    const ripenessMap = {
+      'not_mature': 'Not Mature',
+      'mature': 'Mature', 
+      'ripe': 'Ripe',
+      'over_ripe': 'Over Ripe'
+    };
+
+    let maxCount = 0;
+    let dominantRipeness = 'Mature';
+
+    for (const [stage, count] of Object.entries(distribution)) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantRipeness = ripenessMap[stage] || 'Mature';
+      }
     }
-  };
 
-  const analyzeImage = async () => {
-    if (!selectedImage || !user) return;
-
-    setIsAnalyzing(true);
-
-    // Simulate AI processing time
-    setTimeout(async () => {
-      const analysisResult = analyzeBanana(selectedImage, user.id);
-      setResult(analysisResult);
-      setIsAnalyzing(false);
-
-      // Convert data URL to File for upload
-      function dataURLtoFile(dataurl: string, filename: string) {
-        const arr = dataurl.split(',');
-        const mime = arr[0].match(/:(.*?);/)[1];
-        const bstr = atob(arr[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        for (let i = 0; i < n; i++) u8arr[i] = bstr.charCodeAt(i);
-        return new File([u8arr], filename, { type: mime });
-      }
-      const file = dataURLtoFile(selectedImage, `scan_${Date.now()}.jpg`);
-
-      // Get JWT token
-      const token = localStorage.getItem("sagitech-token");
-      if (!token) {
-        toast({ title: "Error", description: "Not authenticated.", variant: "destructive" });
-        return;
-      }
-
-      try {
-        await authService.uploadScanRecord({
-          image: file,
-          banana_count: analysisResult.bananaCount,
-          ripeness_results: analysisResult.ripenessResults || [],
-          avg_confidence: analysisResult.confidence,
-        });
-        toast({
-          title: "Analysis Complete!",
-          description: `Found ${analysisResult.bananaCount} banana(s) with ${analysisResult.confidence}% confidence. Scan saved!`,
-        });
-      } catch (err) {
-        toast({ title: "Upload Failed", description: "Could not save scan to server.", variant: "destructive" });
-      }
-    }, 2000);
+    return dominantRipeness;
   };
 
   const resetScan = () => {
-    setSelectedImage(null);
-    setResult(null);
-    setShowCamera(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    resetImage();
+    resetPrediction();
+    clearError();
   };
 
   if (!user) return null;
@@ -369,3 +423,10 @@ export const FarmerScan = () => {
     </AppLayout>
   );
 };
+
+// Export with Error Boundary wrapper
+export const FarmerScan = () => (
+  <ErrorBoundary>
+    <FarmerScanContent />
+  </ErrorBoundary>
+);
