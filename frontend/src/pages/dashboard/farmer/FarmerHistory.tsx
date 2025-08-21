@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo } from "react";
 import { Search, Filter, Eye, Calendar, Banana, Download } from "lucide-react";
 import { AppLayout } from "@/layouts/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -7,61 +6,77 @@ import { GlassButton } from "@/components/ui/GlassButton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { User, ScanResult } from "@/types";
+import { ScanResult } from "@/types";
 import { getRipenessBadgeClass } from "@/utils/analyzeBanana";
-import { useToast } from "@/hooks/use-toast";
-import { authService } from "@/utils/authService";
+import { toast } from "@/hooks/use-toast";
+import { apiService } from "@/services/ApiService";
+import useAuth from "@/hooks/useAuth";
+import useApiError from "@/hooks/useApiError";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { saveAs } from "file-saver";
 import { Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun, HeadingLevel, WidthType, ImageRun } from "docx";
 import * as XLSX from "xlsx";
 
-export const FarmerHistory = () => {
-  const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+const FarmerHistoryContent = () => {
+  const { user } = useAuth({ requiredRole: 'farmer' });
+  const { executeWithErrorHandling, isLoading, error } = useApiError();
+  
   const [scans, setScans] = useState<ScanResult[]>([]);
-  const [filteredScans, setFilteredScans] = useState<ScanResult[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [ripenessFilter, setRipenessFilter] = useState<string>("all");
   const [selectedScan, setSelectedScan] = useState<ScanResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
+
+  // Memoized filtered scans for performance
+  const filteredScans = useMemo(() => {
+    return scans.filter(scan => {
+      const matchesSearch = searchTerm === "" || 
+        scan.ripeness.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        scan.bananaCount.toString().includes(searchTerm);
+      
+      const matchesRipeness = ripenessFilter === "all" || scan.ripeness === ripenessFilter;
+      
+      return matchesSearch && matchesRipeness;
+    });
+  }, [scans, searchTerm, ripenessFilter]);
 
   useEffect(() => {
-    const userData = localStorage.getItem("sagitech-user");
-    const token = localStorage.getItem("sagitech-token");
-    if (userData && token) {
-      const parsedUser = JSON.parse(userData);
-      if (parsedUser.role !== "farmer") {
-        navigate("/login");
-        return;
-      }
-      setUser(parsedUser);
-      setLoading(true);
-      setError(null);
-      // Fetch scans from backend
-      authService.fetchScanRecords()
-        .then((records) => {
-          const normalizedScans = records.map(scan => ({
-            ...scan,
-            bananaCount: scan.banana_count,
-            confidence: scan.avg_confidence,
-            ripeness: scan.ripeness || scan.ripeness_results?.[0]?.ripeness || "",
-          }));
-          setScans(normalizedScans);
-          setFilteredScans(normalizedScans);
-          setLoading(false);
-        })
-        .catch(() => {
-          setScans([]);
-          setFilteredScans([]);
-          setError("Failed to load scan history. Please try again.");
-          setLoading(false);
-        });
-    } else {
-      navigate("/login");
-    }
-  }, [navigate]);
+    if (!user) return;
+
+    executeWithErrorHandling(async () => {
+      console.group('📋 Fetching Scan History');
+      console.log('User:', user.username);
+      
+      const records = await apiService.listPredictions();
+      
+      // Convert API response to ScanResult format
+      const normalizedScans = records.results.map(scan => ({
+        id: scan.id.toString(),
+        userId: scan.user.id.toString(),
+        timestamp: new Date(scan.timestamp),
+        image: scan.image_url,
+        ripeness: scan.ripeness as any,
+        bananaCount: scan.banana_count,
+        confidence: scan.avg_confidence,
+        ripenessResults: scan.ripeness_results,
+        ripenessDistribution: scan.ripeness_distribution,
+        processingMetadata: {
+          model_version: scan.model_version,
+          processing_time: scan.processing_time,
+          analysis_mode: scan.analysis_mode as any,
+          confidence_threshold: scan.confidence_threshold,
+          has_segmentation: scan.has_segmentation
+        },
+        qualityScore: scan.quality_score,
+        errorMessage: scan.error_message
+      }));
+      
+      setScans(normalizedScans);
+      console.log('✅ Scan history loaded:', normalizedScans.length, 'records');
+      console.groupEnd();
+      
+      return normalizedScans;
+    }, 'Fetch Scan History', true);
+  }, [user, executeWithErrorHandling]);
 
   useEffect(() => {
     let filtered = scans;
@@ -465,3 +480,10 @@ export const FarmerHistory = () => {
     </AppLayout>
   );
 };
+
+// Export with Error Boundary wrapper
+export const FarmerHistory = () => (
+  <ErrorBoundary>
+    <FarmerHistoryContent />
+  </ErrorBoundary>
+);

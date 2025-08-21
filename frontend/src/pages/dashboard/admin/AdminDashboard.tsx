@@ -4,14 +4,17 @@ import { Users, Activity, BarChart3, Settings, TrendingUp, Camera } from "lucide
 import { AppLayout } from "@/layouts/AppLayout";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import { User } from "@/types";
-import { adminApi } from "@/utils/adminApi";
+import { apiService } from "@/services/ApiService";
+import useAuth from "@/hooks/useAuth";
+import useApiError from "@/hooks/useApiError";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
-export const AdminDashboard = () => {
+const AdminDashboardContent = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  const { user } = useAuth({ requiredRole: 'admin' });
+  const { executeWithErrorHandling, isLoading } = useApiError();
+  
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
-  const [activityLoading, setActivityLoading] = useState(true);
   const [systemStats, setSystemStats] = useState({
     totalUsers: 0,
     activeUsers: 0,
@@ -19,56 +22,29 @@ export const AdminDashboard = () => {
     newThisMonth: 0,
     systemUptime: "0%"
   });
-  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
-    const userData = localStorage.getItem("sagitech-user");
-    if (userData) {
-      const parsedUser = JSON.parse(userData);
-      if (parsedUser.role !== "admin") {
-        navigate("/login");
-        return;
-      }
-      setUser(parsedUser);
-    } else {
-      navigate("/login");
-    }
-  }, [navigate]);
+    if (!user) return;
 
-  useEffect(() => {
-    adminApi.getRecentActivity()
-      .then(res => {
-        setRecentActivity(res.data as any[]);
-        setActivityLoading(false);
-      })
-      .catch(() => {
-        setRecentActivity([]);
-        setActivityLoading(false);
-      });
-  }, []);
+    // Fetch recent activity
+    executeWithErrorHandling(async () => {
+      const activityData = await apiService.getRecentActivity();
+      setRecentActivity(activityData);
+      return activityData;
+    }, 'Fetch Recent Activity', true);
 
-  useEffect(() => {
-    adminApi.getDashboardOverview()
-      .then(res => {
-        setSystemStats(res.data as typeof systemStats);
-        setStatsLoading(false);
-      })
-      .catch(() => {
-        setSystemStats({
-          totalUsers: 0,
-          activeUsers: 0,
-          totalScans: 0,
-          newThisMonth: 0,
-          systemUptime: "0%"
-        });
-        setStatsLoading(false);
-      });
-  }, []);
+    // Fetch dashboard overview
+    executeWithErrorHandling(async () => {
+      const statsData = await apiService.getDashboardOverview();
+      setSystemStats(statsData);
+      return statsData;
+    }, 'Fetch Dashboard Overview', true);
+  }, [user, executeWithErrorHandling]);
 
   const statCards = [
     {
       title: "Total Users",
-      value: statsLoading ? "..." : systemStats.totalUsers,
+      value: isLoading ? "..." : systemStats.totalUsers,
       icon: Users,
       color: "text-blue-500",
       bgColor: "bg-blue-500/20",
@@ -76,7 +52,7 @@ export const AdminDashboard = () => {
     },
     {
       title: "Active Users",
-      value: statsLoading ? "..." : systemStats.activeUsers,
+      value: isLoading ? "..." : systemStats.activeUsers,
       icon: Activity,
       color: "text-green-500",
       bgColor: "bg-green-500/20",
@@ -84,7 +60,7 @@ export const AdminDashboard = () => {
     },
     {
       title: "Total Scans",
-      value: statsLoading ? "..." : systemStats.totalScans,
+      value: isLoading ? "..." : systemStats.totalScans,
       icon: Camera,
       color: "text-purple-500",
       bgColor: "bg-purple-500/20",
@@ -92,7 +68,7 @@ export const AdminDashboard = () => {
     },
     {
       title: "New This Month",
-      value: statsLoading ? "..." : systemStats.newThisMonth,
+      value: isLoading ? "..." : systemStats.newThisMonth,
       icon: Camera,
       color: "text-orange-500",
       bgColor: "bg-orange-500/20",
@@ -100,7 +76,7 @@ export const AdminDashboard = () => {
     },
     {
       title: "System Uptime",
-      value: statsLoading ? "..." : systemStats.systemUptime,
+      value: isLoading ? "..." : systemStats.systemUptime,
       icon: TrendingUp,
       color: "text-emerald-500",
       bgColor: "bg-emerald-500/20",
@@ -207,7 +183,7 @@ export const AdminDashboard = () => {
           <GlassCard>
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-foreground">Recent User Activity</h3>
-              {activityLoading ? (
+              {isLoading ? (
                 <div>Loading...</div>
               ) : recentActivity.length === 0 ? (
                 <div className="text-muted-foreground">No recent activity.</div>
@@ -286,3 +262,10 @@ export const AdminDashboard = () => {
     </AppLayout>
   );
 };
+
+// Export with Error Boundary wrapper
+export const AdminDashboard = () => (
+  <ErrorBoundary>
+    <AdminDashboardContent />
+  </ErrorBoundary>
+);
